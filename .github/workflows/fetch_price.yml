@@ -1,0 +1,33 @@
+name: Gold Price Fetcher (Real-time)
+
+on:
+  schedule:
+    # รันทุกๆ 10 นาที (GitHub Actions รันถี่สุดได้ประมาณนี้)
+    - cron: '*/10 * * * *'
+  workflow_dispatch: # ปุ่มกดสั่งรันเองแมนนวล
+
+jobs:
+  fetch-price:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium
+
+      - name: Run price fetcher
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          # ใส่ Secrets อื่นๆ ที่จำเป็นใน .env ของคุณ
+        run: |
+          # เราจะแก้การรันนิดหน่อยเพื่อให้มันดักราคาแล้วปิดตัวลงใน 1 รอบ
+          python jobs/runs_price.py --once

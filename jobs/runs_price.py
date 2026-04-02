@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import pytz 
 from playwright.sync_api import sync_playwright
 from supabase import create_client, Client
+import argparse
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from modules.gold_interceptor import run
@@ -17,6 +18,11 @@ app = Flask(__name__)
 @app.route('/')
 def health_check():
     return "Gold Fetcher Status: ONLINE", 200
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--once", action="store_true")
+args = parser.parse_args()
+
 
 # 2. ตั้งค่า Supabase และเวลา
 from dotenv import load_dotenv
@@ -50,17 +56,25 @@ def handle_new_price(price_data: dict):
         except Exception as e:
             print(f"❌ Error: {e}")
 
-# 3. ฟังก์ชันหลักสำหรับรันงานดักราคา
-def start_price_interceptor():
-    print("🚀 [JOB: PRICE] เริ่มต้นการดักจับราคาทองคำ...")
+def start_price_interceptor(once_mode=False):
+    print(f"🚀 [JOB: PRICE] เริ่มต้นการดักจับราคาทองคำ... (Once Mode: {once_mode})")
     with sync_playwright() as playwright:
-        run(playwright, callback=handle_new_price)
+        # ส่งค่า once_mode เข้าไปใน modules.gold_interceptor
+        run(playwright, callback=handle_new_price, once=once_mode)
 
 if __name__ == "__main__":
-    # รันงานดักราคาไว้ที่พื้นหลัง (Background Thread)
-    price_thread = threading.Thread(target=start_price_interceptor, daemon=True)
-    price_thread.start()
-    
-    # รัน Flask บน Port ที่ Render กำหนด (Default คือ 10000)
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
+    # เช็ค Arguments ว่าสั่งรันแบบรอบเดียวหรือไม่
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--once", action="store_true")
+    args = parser.parse_args()
+
+    if args.once:
+        # ถ้าสั่ง --once (สำหรับ GitHub Actions) ให้รันฟังก์ชันโดยตรงแล้วจบงาน
+        start_price_interceptor(once_mode=True)
+    else:
+        # ถ้าไม่ใส่ --once (สำหรับรัน Local ใน MacBook) ให้รัน Flask และ Thread ปกติ
+        price_thread = threading.Thread(target=lambda: start_price_interceptor(once_mode=False), daemon=True)
+        price_thread.start()
+        
+        port = int(os.environ.get("PORT", 10000))
+        app.run(host='0.0.0.0', port=port)
