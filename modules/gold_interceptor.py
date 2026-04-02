@@ -1,7 +1,7 @@
 from playwright.sync_api import sync_playwright
 import json
 
-def run(playwright, callback=None):
+def run(playwright, callback, once=False):
     browser = playwright.chromium.launch(headless=True)
     page = browser.new_page()
 
@@ -9,6 +9,11 @@ def run(playwright, callback=None):
 
     def on_websocket(ws):
         ws.on("framereceived", lambda payload: process_message(payload, callback))
+
+    if once:
+        print("🛑 [ONCE MODE] ดึงข้อมูลรอบเดียวสำเร็จ กำลังปิด Browser...")
+        browser.close()
+        return
 
     def process_message(payload, callback):
         if payload.startswith("42"):
