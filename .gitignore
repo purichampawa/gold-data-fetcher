@@ -1,0 +1,12 @@
+# Credentials & Environment
+.env
+
+# Python specific
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+
+# Data (ถ้าไม่อยากให้ไฟล์ CSV ขึ้นไปทับบน Cloud)
+*.csv
