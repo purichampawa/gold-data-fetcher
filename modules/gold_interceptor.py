@@ -1,16 +1,23 @@
 from playwright.sync_api import sync_playwright
 import json
-import os
+from datetime import datetime
 
 def run(playwright, callback, once=False):
-    # รัน chromium แบบ headless (ไม่เปิดหน้าต่าง) เพื่อใช้บน Server
+    # เปิด Browser แบบ Headless สำหรับ GitHub Actions
     browser = playwright.chromium.launch(headless=True)
     context = browser.new_context(user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
     page = context.new_page()
+    
+    # ใช้ dictionary เก็บสถานะเพื่อให้เรียกใช้ข้ามฟังก์ชันได้
+    state = {"is_finished": False}
 
     print("🚀 Opening browser to intercept WebSocket stream...")
 
     def process_message(payload, callback):
+        # ถ้าได้ข้อมูลไปแล้ว (ในโหมด once) ให้ข้ามเฟรมถัดๆ ไปเลย
+        if state["is_finished"]:
+            return
+
         if payload.startswith("42"):
             try:
                 data_list = json.loads(payload[2:])
@@ -30,19 +37,16 @@ def run(playwright, callback, once=False):
                         "assoc_ask": gold.get("offerCentralPrice96")
                     }
 
-                    # แสดงผลบน Log
                     print(f"🌟 [99.99%] {t_stamp} | Spot: {gold.get('AUXBuy')} | USD/THB: {gold.get('usdBuy')}")
                     
                     if callback:
                         callback(data_row)
 
-                    # ถ้าเป็นโหมด Once ให้สะกิดให้ระบบหยุดทำงานอย่างนุ่มนวล
+                    # ถ้าเป็นโหมด Once ให้เปลี่ยนสถานะเพื่อให้ Loop หลักหยุดทำงาน
                     if once:
                         print("🛑 [ONCE MODE] บันทึกข้อมูลสำเร็จ กำลังเตรียมปิดระบบ...")
-                        raise StopIteration
+                        state["is_finished"] = True
 
-            except StopIteration:
-                raise StopIteration # ส่งต่อเพื่อให้ Loop ด้านล่างจับได้
             except Exception:
                 pass
 
@@ -54,14 +58,19 @@ def run(playwright, callback, once=False):
 
     try:
         if once:
-            # รอสูงสุด 2 นาที เผื่อเน็ตช้า
-            page.wait_for_timeout(120000) 
+            # วนลูปเช็คสถานะทุก 1 วินาที (สูงสุด 2 นาทีป้องกันค้าง)
+            start_time = datetime.now()
+            while not state["is_finished"]:
+                page.wait_for_timeout(1000) 
+                if (datetime.now() - start_time).seconds > 120:
+                    print("⚠️ Timeout: ไม่ได้รับข้อมูลภายใน 2 นาที")
+                    break
         else:
+            # โหมดปกติ (MacBook) ให้รันค้างไว้
             while True:
                 page.wait_for_timeout(60000) 
-    except (StopIteration, KeyboardInterrupt):
-        print("\n🛑 Closing browser gracefully...")
-        browser.close()
-    except Exception as e:
-        print(f"❌ Error during execution: {e}")
+    except KeyboardInterrupt:
+        pass
+    finally:
+        print("🛑 Closing browser...")
         browser.close()
