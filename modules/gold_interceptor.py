@@ -3,84 +3,65 @@ import json
 import os
 
 def run(playwright, callback, once=False):
+    # รัน chromium แบบ headless (ไม่เปิดหน้าต่าง) เพื่อใช้บน Server
     browser = playwright.chromium.launch(headless=True)
-    page = browser.new_page()
+    context = browser.new_context(user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+    page = context.new_page()
 
     print("🚀 Opening browser to intercept WebSocket stream...")
-
-    def on_websocket(ws):
-        ws.on("framereceived", lambda payload: process_message(payload, callback))
 
     def process_message(payload, callback):
         if payload.startswith("42"):
             try:
                 data_list = json.loads(payload[2:])
-                event_name = data_list[0]
-
-                if event_name == "updateGoldRateData":
+                if data_list[0] == "updateGoldRateData":
                     gold = data_list[1]
                     t_stamp = gold.get("createDate", "Unknown")
 
-                    bid_99 = gold.get("bidPrice99")
-                    ask_99 = gold.get("offerPrice99")
-                    bid_96 = gold.get("bidPrice96")
-                    ask_96 = gold.get("offerPrice96")
-                    spot = gold.get("AUXBuy")
-                    fx = gold.get("usdBuy")
-                    a_bid = gold.get("bidCentralPrice96")
-                    a_ask = gold.get("offerCentralPrice96")
-
                     data_row = {
                         "timestamp": t_stamp,
-                        "bid_99": bid_99,
-                        "ask_99": ask_99,
-                        "bid_96": bid_96,
-                        "ask_96": ask_96,
-                        "spot_price": spot,
-                        "usd_thb": fx,
-                        "assoc_bid": a_bid,
-                        "assoc_ask": a_ask
+                        "bid_99": gold.get("bidPrice99"),
+                        "ask_99": gold.get("offerPrice99"),
+                        "bid_96": gold.get("bidPrice96"),
+                        "ask_96": gold.get("offerPrice96"),
+                        "spot_price": gold.get("AUXBuy"),
+                        "usd_thb": gold.get("usdBuy"),
+                        "assoc_bid": gold.get("bidCentralPrice96"),
+                        "assoc_ask": gold.get("offerCentralPrice96")
                     }
 
-                    def fmt(val):
-                        if val is None: return "N/A"
-                        try:
-                            return f"{float(val):,.0f}" if float(val) >= 1000 else f"{float(val):,.2f}"
-                        except ValueError:
-                            return "N/A"
-
-                    print(f"🌟 [99.99%] {t_stamp} | Buy: {fmt(bid_99)} | Sell: {fmt(ask_99)}")
-                    print(f"✅ [96.5%]  {t_stamp} | Buy: {fmt(bid_96)} | Sell: {fmt(ask_96)}")
-                    print(f"🌐 [GLOBAL] Spot: {fmt(spot)} | USD/THB: {fmt(fx)}")
-                    print("-" * 75)
-
+                    # แสดงผลบน Log
+                    print(f"🌟 [99.99%] {t_stamp} | Spot: {gold.get('AUXBuy')} | USD/THB: {gold.get('usdBuy')}")
+                    
                     if callback:
                         callback(data_row)
-                    
-                    if once:
-                        print("🛑 [ONCE MODE] บันทึกข้อมูลสำเร็จ กำลังปิด Browser...")
-                        browser.close()
-                        os._exit(0) # สั่งจบ Process ทันทีเพื่อแจ้ง GitHub ว่างานเสร็จแล้ว
 
-            except Exception as e:
+                    # ถ้าเป็นโหมด Once ให้สะกิดให้ระบบหยุดทำงานอย่างนุ่มนวล
+                    if once:
+                        print("🛑 [ONCE MODE] บันทึกข้อมูลสำเร็จ กำลังเตรียมปิดระบบ...")
+                        raise StopIteration
+
+            except StopIteration:
+                raise StopIteration # ส่งต่อเพื่อให้ Loop ด้านล่างจับได้
+            except Exception:
                 pass
 
+    def on_websocket(ws):
+        ws.on("framereceived", lambda payload: process_message(payload, callback))
+
     page.on("websocket", on_websocket)
-    # รอจนกว่า network จะนิ่ง แปลว่าโหลดหน้าเว็บเสร็จสมบูรณ์
     page.goto("https://www.intergold.co.th/curr-price/", wait_until="networkidle")
 
-    print(f"📡 Intercepting live prices... (Press Ctrl+C to stop)")
-
     try:
-        while True:
-            # ให้มันรอทีละ 1 นาทีวนไปเรื่อยๆ เพื่อไม่ให้บล็อกการรับข้อมูล และทำงานได้ตลอด 24/7
-            page.wait_for_timeout(60000) 
-    except KeyboardInterrupt:
-        print("\n🛑 Shutting down and closing browser...")
+        if once:
+            # รอสูงสุด 2 นาที เผื่อเน็ตช้า
+            page.wait_for_timeout(120000) 
+        else:
+            while True:
+                page.wait_for_timeout(60000) 
+    except (StopIteration, KeyboardInterrupt):
+        print("\n🛑 Closing browser gracefully...")
         browser.close()
-
-if __name__ == "__main__":
-    with sync_playwright() as playwright:
-        def dummy_callback(data):
-            pass
-        run(playwright, callback=dummy_callback)
+    except Exception as e:
+        print(f"❌ Error during execution: {e}")
+        browser.close()
