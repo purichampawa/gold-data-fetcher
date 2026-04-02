@@ -1,5 +1,6 @@
 from playwright.sync_api import sync_playwright
 import json
+import os
 
 def run(playwright, callback, once=False):
     browser = playwright.chromium.launch(headless=True)
@@ -9,11 +10,6 @@ def run(playwright, callback, once=False):
 
     def on_websocket(ws):
         ws.on("framereceived", lambda payload: process_message(payload, callback))
-
-    if once:
-        print("🛑 [ONCE MODE] ดึงข้อมูลรอบเดียวสำเร็จ กำลังปิด Browser...")
-        browser.close()
-        return
 
     def process_message(payload, callback):
         if payload.startswith("42"):
@@ -60,6 +56,11 @@ def run(playwright, callback, once=False):
 
                     if callback:
                         callback(data_row)
+                    
+                    if once:
+                        print("🛑 [ONCE MODE] บันทึกข้อมูลสำเร็จ กำลังปิด Browser...")
+                        browser.close()
+                        os._exit(0) # สั่งจบ Process ทันทีเพื่อแจ้ง GitHub ว่างานเสร็จแล้ว
 
             except Exception as e:
                 pass
